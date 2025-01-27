@@ -1,0 +1,11 @@
+{
+  "name": "@orchidrpc/server",
+  "module": "dist/index.js",
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "prepublish": "tsc"
+  },
+  "type": "module"
+}

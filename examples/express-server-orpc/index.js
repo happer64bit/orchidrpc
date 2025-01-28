@@ -1,26 +1,3 @@
-# OrchidRpc
-
-Orchid RPC is a lightweight and flexible HTTP client designed to simplify interactions with APIs.
-
-## Installation
-
-### Server
-
-```bash
-npm install @orchidrpc/server
-```
-
-### Client
-
-```bash
-npm install @orchidrpc/client
-```
-
-## Example Usage
-
-### Creating Server (Express.js)
-
-```typescript
 import Express from 'express'
 import { RPC, handleAllHttp } from '@orchidrpc/server'
 
@@ -49,16 +26,3 @@ const appRouter = rpc.router({
 app.all("/orpc", handleAllHttp(rpc, appRouter))
 
 app.listen(4000)
-```
-
-### Client
-
-```typescript
-import { OrchidRpcClient } from '@orchidrpc/client'
-
-const client = new OrchidRpcClient({
-    endpoint: 'https://api.example.com',
-})
-
-client.procedure("greet", { name: "Happer" })
-```

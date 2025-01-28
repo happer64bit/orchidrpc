@@ -1,15 +1,21 @@
 # @orchidrpc/client
 
-To install dependencies:
+To install this
 
 ```bash
-bun install
+npm install @ochidrpc/client
 ```
 
-To run:
+## Usage
 
-```bash
-bun run src/index.ts
+### Client
+
+```typescript
+import { OrchidRpcClient } from '@orchidrpc/client'
+
+const client = new OrchidRpcClient({
+    endpoint: 'https://api.example.com',
+})
+
+client.procedure("greet", { name: "Happer" })
 ```
-
-This project was created using `bun init` in bun v1.2.0. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.

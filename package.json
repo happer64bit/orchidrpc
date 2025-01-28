@@ -1,7 +1,8 @@
 {
-  "name": "orchidrpc",
+  "name": "@orchidrpc",
   "private": false,
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "version": "1.0.0"
 }

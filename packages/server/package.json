@@ -10,5 +10,9 @@
   "scripts": {
     "build": "tsc"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.14",
+    "protobufjs": "^7.4.0"
+  }
 }

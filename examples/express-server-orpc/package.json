@@ -3,7 +3,8 @@
   "module": "index.js",
   "type": "module",
   "dependencies": {
-    "@orchidrpc/server": "^1.0.3",
+    "@orchidrpc/server": "file:./../../packages/server",
+    "@orchidrpc/client": "file:./../../packages/client",
     "express": "^4.21.2"
   }
 }

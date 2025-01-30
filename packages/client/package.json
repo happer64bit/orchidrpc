@@ -10,5 +10,8 @@
   "version": "1.0.2",
   "scripts": {
     "prepublish": "tsc"
+  },
+  "dependencies": {
+    "protobufjs": "^7.4.0"
   }
 }

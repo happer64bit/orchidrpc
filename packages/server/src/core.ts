@@ -1,17 +1,37 @@
-import { IncomingMessage, ServerResponse } from 'http'
+import { IncomingMessage, ServerResponse } from 'http';
+import type { Static, TSchema as TTypeBoxSchema } from '@sinclair/typebox'; // Importing Static for type inference
+import { Check } from '@sinclair/typebox/value';
 
-// Type to represent the context passed to the procedures
-export type RPCContext = Record<string, any>;
+/**
+ * Type to represent the context passed to the procedures, now a function returning dynamic values.
+ * @typedef {function(IncomingMessage, ServerResponse): Record<string, any>} RPCContext
+ */
+export type RPCContext = (request: IncomingMessage, response: ServerResponse) => Record<string, any>;
 
 /**
  * Represents the options available in each procedure, including input, context, request, and response.
  * @template TInput - The type of the input for the procedure.
  */
 export interface ProcedureOptions<TInput> {
-  input: TInput;                // Input data for the procedure
-  context: RPCContext;          // The context that the procedure is executed in
-  request: IncomingMessage;     // Incoming HTTP request
-  response: ServerResponse;    // HTTP response to be sent
+  /**
+   * Input data for the procedure.
+   */
+  input: TInput;
+
+  /**
+   * The merged context from global and request-specific sources.
+   */
+  context: Record<string, any>;
+
+  /**
+   * Incoming HTTP request.
+   */
+  request: IncomingMessage;
+
+  /**
+   * HTTP response to be sent.
+   */
+  response: ServerResponse;
 }
 
 /**
@@ -21,17 +41,17 @@ export interface ProcedureOptions<TInput> {
 export interface ProcedureBuilder<TContext extends RPCContext> {
   /**
    * Adds input validation to the procedure and returns a procedure with input handling.
-   * @template TInput - The type of the input data.
-   * @param validate - An optional validation function to validate the input.
-   * @returns A procedure that accepts input data with validation.
+   * @template TSchema - The schema for the input data.
+   * @param {TSchema} schema - A TypeBox schema for validating the input.
+   * @returns {ProcedureWithInput<TContext, Static<TSchema>>} - A procedure that accepts input data with validation.
    */
-  input<TInput>(validate?: (input: unknown) => TInput): ProcedureWithInput<TContext, TInput>;
+  input<TSchema extends TTypeBoxSchema>(schema: TSchema): ProcedureWithInput<TContext, Static<TSchema>>;
 
   /**
    * Adds a global middleware to the procedure.
    * @template TResult - The return type of the handler function.
-   * @param handler - The handler function that acts as middleware for the procedure.
-   * @returns A procedure with global middleware.
+   * @param {function(ProcedureOptions<never>, () => Promise<TResult>): TResult | Promise<TResult>} handler - The middleware handler.
+   * @returns {Procedure<TContext, never, TResult>} - A procedure with global middleware.
    */
   use<TResult>(
     handler: (opts: ProcedureOptions<never>, next: () => Promise<TResult>) => TResult | Promise<TResult>
@@ -47,8 +67,8 @@ export interface ProcedureWithInput<TContext extends RPCContext, TInput> {
   /**
    * Adds middleware to the procedure.
    * @template TResult - The return type of the handler function.
-   * @param handler - The middleware function that processes the procedure input.
-   * @returns A procedure with input validation and middleware.
+   * @param {function(ProcedureOptions<TInput>, () => Promise<TResult>): TResult | Promise<TResult>} handler - Middleware function.
+   * @returns {Procedure<TContext, TInput, TResult>} - A procedure with input validation and middleware.
    */
   use<TResult>(
     handler: (opts: ProcedureOptions<TInput>, next: () => Promise<TResult>) => TResult | Promise<TResult>
@@ -62,129 +82,171 @@ export interface ProcedureWithInput<TContext extends RPCContext, TInput> {
  * @template TResult - The result type the procedure returns.
  */
 export interface Procedure<TContext extends RPCContext, TInput, TResult> {
-  validateInput?: (input: unknown) => TInput;    // Optional input validation function
-  handler: (opts: ProcedureOptions<TInput>) => TResult | Promise<TResult>;  // Main handler function for the procedure
-  middleware: Array<(opts: ProcedureOptions<TInput>, next: () => Promise<TResult>) => TResult | Promise<TResult>>;  // Middleware chain
+  /**
+   * Optional input validation function.
+   */
+  validateInput?: (input: unknown) => TInput;
+
+  /**
+   * Main handler function for the procedure.
+   * @param {ProcedureOptions<TInput>} opts - Options including input, context, request, and response.
+   * @returns {TResult | Promise<TResult>} - The result of the procedure.
+   */
+  handler: (opts: ProcedureOptions<TInput>) => TResult | Promise<TResult>;
+
+  /**
+   * Middleware chain for the procedure.
+   */
+  middleware: Array<(opts: ProcedureOptions<TInput>, next: () => Promise<TResult>) => TResult | Promise<TResult>>;
 }
 
 /**
  * The main class for managing RPC procedures and middleware.
  */
 export class RPC {
-  private context: RPCContext;  // The global context for the RPC
-  private middleware: Array<(opts: any, next: () => Promise<any>) => any> = [];  // Global middleware array
+  /**
+   * Global context shared across all procedures.
+   */
+  private globalContext: Record<string, any>;
 
   /**
-   * Creates a new RPC instance with the given context.
-   * @param context - The global context for the RPC instance.
+   * Global middleware array.
    */
-  constructor(context: RPCContext) {
-    this.context = context;
+  private middleware: Array<(opts: any, next: () => Promise<any>) => any> = [];
+
+  /**
+   * Creates a new RPC instance with the global context.
+   * @param {Record<string, any>} globalContext - An optional static global context to be used across all procedures.
+   */
+  constructor(globalContext: Record<string, any> = {}) {
+    this.globalContext = globalContext;
+  }
+
+  /**
+   * Merges global context with request-specific context.
+   * @param {IncomingMessage} request - The HTTP request.
+   * @param {ServerResponse} response - The HTTP response.
+   * @param {RPCContext} contextFn - The context function for the procedure.
+   * @returns {Record<string, any>} - The merged context.
+   */
+  private mergeContexts(request: IncomingMessage, response: ServerResponse, contextFn: RPCContext): Record<string, any> {
+    let requestContext = {};
+
+    if (typeof contextFn === 'function') {
+      requestContext = contextFn(request, response) || {}; // Default to empty object if undefined
+    }
+
+    // Merge the global context with the request-specific context
+    return { ...this.globalContext, ...requestContext };
   }
 
   /**
    * Builds a procedure with input validation and middleware.
-   * @returns An object that allows you to define a procedure with input validation and middleware.
+   * @returns {ProcedureBuilder<RPCContext>} - An object that allows you to define a procedure.
    */
-  procedure(): ProcedureBuilder<RPCContext> {
+  procedure(contextFn: RPCContext): ProcedureBuilder<RPCContext> {
     return {
-      /**
-       * Adds input validation to the procedure.
-       * @template TInput - The type of the input data.
-       * @param validate - An optional validation function to validate the input.
-       * @returns A procedure that accepts input data with validation.
-       */
-      input: <TInput>(validate?: (input: unknown) => TInput) => ({
-        /**
-         * Adds middleware to the procedure with input validation.
-         * @template TResult - The return type of the handler function.
-         * @param handler - The middleware function that processes the procedure input.
-         * @returns A procedure with input validation and middleware.
-         */
-        use: <TResult>(
-          handler: (opts: ProcedureOptions<TInput>, next: () => Promise<TResult>) => TResult | Promise<TResult>
-        ) => ({
-          validateInput: validate,  // Assign input validation if provided
-          handler: (opts: ProcedureOptions<TInput>) => handler(opts, async () => Promise.resolve() as unknown as TResult),
-          middleware: [],  // Initialize with an empty middleware chain
-        }),
-      }),
+      input: <TSchema extends TTypeBoxSchema>(schema: TSchema) => {
+        const validateInput = (input: unknown): Static<TSchema> => {
+          const result = Check(schema, input);
+          if (!result) {
+            throw new Error(`Validation failed for schema: ${JSON.stringify(schema)}`);
+          }
+          return input as Static<TSchema>;
+        };
 
-      /**
-       * Adds global middleware to the procedure.
-       * @template TResult - The return type of the handler function.
-       * @param handler - The middleware handler function.
-       * @returns A procedure with global middleware.
-       */
+        return {
+          use: <TResult>(
+            handler: (opts: ProcedureOptions<Static<TSchema>>, next: () => Promise<TResult>) => TResult | Promise<TResult>
+          ) => {
+            const procedure: Procedure<RPCContext, Static<TSchema>, TResult> = {
+              validateInput,
+              handler: (opts: ProcedureOptions<Static<TSchema>>) => handler(opts, async () => Promise.resolve() as TResult),
+              middleware: [],
+            };
+            return procedure;
+          },
+        };
+      },
+
       use: <TResult>(
         handler: (opts: ProcedureOptions<never>, next: () => Promise<TResult>) => TResult | Promise<TResult>
-      ): Procedure<RPCContext, never, TResult> => ({
-        handler: (opts: ProcedureOptions<never>) => handler(opts, async () => Promise.resolve() as unknown as TResult),
-        middleware: [],  // Initialize with an empty middleware chain
-      }),
+      ): Procedure<RPCContext, never, TResult> => {
+        const procedure: Procedure<RPCContext, never, TResult> = {
+          handler: (opts: ProcedureOptions<never>) => handler(opts, async () => Promise.resolve() as TResult),
+          middleware: [],
+        };
+        return procedure;
+      },
     };
   }
 
   /**
    * Executes a procedure with the given input and HTTP request/response.
-   * This method validates the input, processes the middleware, and calls the procedure handler.
-   * @template TInput - The type of the input data.
-   * @template TResult - The return type of the procedure.
-   * @template TProcedure - The procedure type.
-   * @param procedure - The procedure to be executed.
-   * @param input - The input data to be passed to the procedure.
-   * @param request - The incoming HTTP request.
-   * @param response - The HTTP response to be returned.
-   * @returns A promise that resolves to the result of the procedure handler.
+   * @template TInput
+   * @template TResult
+   * @template TProcedure
+   * @param {TProcedure} procedure - The procedure to execute.
+   * @param {unknown} input - The raw input to validate and process.
+   * @param {IncomingMessage} request - The incoming HTTP request.
+   * @param {ServerResponse} response - The outgoing HTTP response.
+   * @returns {Promise<TResult>} - The result of the procedure execution.
    */
   async execute<TInput, TResult, TProcedure extends Procedure<any, TInput, TResult>>(
-    procedure: TProcedure,  // The procedure to be executed
-    input: unknown,         // Input data to be validated and passed to the procedure
-    request: IncomingMessage, // Incoming HTTP request
-    response: ServerResponse  // HTTP response
-  ): Promise<TResult> {
-    // Validate input if a validation function is provided
-    const validatedInput = procedure.validateInput ? procedure.validateInput(input) : (input as TInput);
+    procedure: TProcedure,
+    input: unknown,
+    request: IncomingMessage,
+    response: ServerResponse
+  ): Promise<TResult | void> {
+    let validatedInput: TInput;
 
-    const context = {
-      ...this.context,  // Include the global context
-      request,
-      response,
+    try {
+      validatedInput = procedure.validateInput ? procedure.validateInput(input) : (input as TInput);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.sendErrorResponse(response, 400, 'Invalid input', errorMessage);
+      return;
+    }
+
+    const context = this.mergeContexts(request, response, () => this.globalContext); // Context declared
+
+    let index = 0;
+
+    const next = async (): Promise<TResult> => {
+      if (index < procedure.middleware.length) {
+        const middlewareFn = procedure.middleware[index++];
+        return middlewareFn({ input: validatedInput, context, request, response }, next);
+      }
+      return procedure.handler({ input: validatedInput, context, request, response }); // Handler invoked properly
     };
 
-    // Create the middleware chain to handle the procedure execution
-    const handler = async (opts: ProcedureOptions<TInput>) => {
-      let index = 0;
-
-      const next = async () => {
-        if (index < procedure.middleware.length) {
-          // Execute the next middleware in the chain
-          const middlewareFn = procedure.middleware[index++];
-          return middlewareFn(opts, next);
-        }
-        // If no more middleware, execute the procedure handler
-        return procedure.handler(opts);
-      };
-
-      return next();  // Start the middleware chain
-    };
-
-    // Execute the handler and return the result
-    return handler({ input: validatedInput, context, request, response });
+    try {
+      return await next();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.sendErrorResponse(response, 500, 'Internal server error', errorMessage);
+      throw error;
+    }
   }
 
+
   /**
-   * Adds global middleware that applies to all procedures.
-   * @param middleware - The middleware function to be added globally.
+   * Sends a standardized error response to the client.
+   * @param response - The HTTP response object.
+   * @param statusCode - The HTTP status code for the error.
+   * @param message - The error message.
+   * @param details - Additional error details.
    */
-  useMiddleware(middleware: (opts: any, next: () => Promise<any>) => any) {
-    this.middleware.push(middleware);  // Add middleware to the global array
+  private sendErrorResponse(response: ServerResponse, statusCode: number, message: string, details?: string) {
+    response.statusCode = statusCode;
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ error: message, details }));
   }
 
   /**
-   * Registers a collection of procedures and returns them as a router.
-   * @param procedures - A record of named procedures to be used in the RPC router.
-   * @returns An object representing the router with all the registered procedures.
+   * Return the procedures as a router.
+   * @param procedures - The procedures to be used.
+   * @returns {Record<string, Procedure<any, any, any>>}
    */
   router(procedures: Record<string, Procedure<any, any, any>>) {
     return procedures;  // Return the procedures as a router

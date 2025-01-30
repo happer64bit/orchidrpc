@@ -1,15 +1,51 @@
-# server
+# @orchidrpc/server
 
-To install dependencies:
+## Features
+
+- **RPC Procedures**: Define custom procedures with input validation using TypeBox.
+- **Global Context**: Share global context (e.g., authentication state) across RPC handlers.
+
+## Installation
+
+1. Install dependencies:
 
 ```bash
-bun install
+npm install @orchidrpc/server
 ```
 
-To run:
+## Usage (Express.JS)
 
-```bash
-bun run index.ts
+```javascript
+import Express from "express";
+import { RPC, handleAllHttp, T } from "@orchidrpc/server";
+
+const app = Express();
+
+const rpc = new RPC({
+  ending: "!", 
+});
+
+app.use((req, res, next) => {
+  res.setHeader("Content-Security-Policy", "default-src 'none'; connect-src 'self' http://localhost:4000");
+  next();
+});
+
+const appRouter = rpc.router({
+  greet: rpc
+    .procedure()
+    .input(
+      T.Object({
+        name: T.String(),
+      })
+    )
+    .use(async ({ input, context }) => {
+      return `Hello, ${input.name} ${context.ending}`;
+    }),
+});
+
+app.all("/orpc", handleAllHttp(rpc, appRouter));
+
+app.listen(3000, () => {
+  console.log("Server running on http://localhost:3000");
+});
 ```
-
-This project was created using `bun init` in bun v1.2.0. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.

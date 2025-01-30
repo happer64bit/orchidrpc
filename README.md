@@ -1,4 +1,4 @@
-# @orchidrpc/client
+# OrchidRPC
 
 To install this
 
@@ -8,14 +8,9 @@ npm install @orchidrpc/client
 
 ## Usage
 
-### Client
+- Server - [Server Documentation](./packages/server/README.md)
+- Client - [Server Documentation](./packages/client/README.md)
 
-```typescript
-import { OrchidRpcClient } from '@orchidrpc/client'
+## License
 
-const client = new OrchidRpcClient({
-    endpoint: 'https://api.example.com',
-})
-
-client.procedure("greet", { name: "Happer" })
-```
+MIT (Wint Khant Lin)
